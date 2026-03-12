@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
+import { useTheme } from "next-themes";
+import { ModeToggle } from "@/components/mode-toggle";
 import { supabase } from "@/lib/supabase";
 import {
   Card,
@@ -268,17 +270,11 @@ export default function Dashboard() {
   const [timeRange, setTimeRange] = useState<TimeRange>("1D");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
-  const [isDark, setIsDark] = useState(true);
+  const { resolvedTheme } = useTheme();
   const [themeColors, setThemeColors] = useState({
     primary: "#c4b0f5", accent: "#7c5cbf", border: "#252336",
     bg: "#0b0b10", muted: "#7a6e9a",
   });
-
-  // Read theme from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem("theme");
-    setIsDark(saved !== "light");
-  }, []);
 
   // Read CSS vars whenever theme changes
   const readThemeColors = useCallback(() => {
@@ -293,19 +289,7 @@ export default function Dashboard() {
     }, 50);
   }, []);
 
-  useEffect(() => { readThemeColors(); }, [isDark, readThemeColors]);
-
-  const toggleTheme = () => {
-    const newDark = !isDark;
-    setIsDark(newDark);
-    if (newDark) {
-      document.documentElement.classList.add("dark");
-      localStorage.setItem("theme", "dark");
-    } else {
-      document.documentElement.classList.remove("dark");
-      localStorage.setItem("theme", "light");
-    }
-  };
+  useEffect(() => { readThemeColors(); }, [resolvedTheme, readThemeColors]);
 
   // Live clock
   useEffect(() => {
@@ -410,35 +394,8 @@ export default function Dashboard() {
               })}
             </span>
 
-            {/* Theme Toggle */}
-            <button onClick={toggleTheme}
-              className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted hover:bg-accent hover:text-accent-foreground"
-              aria-label="Toggle theme">
-              {isDark ? (
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
-                </svg>
-              ) : (
-                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
-                </svg>
-              )}
-            </button>
-
-            {/* Realtime pulse */}
-            <div className="flex items-center gap-1.5">
-              <span className="relative inline-flex h-2 w-2">
-                {isConnected && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#AFFFB5] opacity-50" />
-                )}
-                <span className={`relative inline-flex h-2 w-2 rounded-full ${
-                  isConnected ? "bg-[#AFFFB5] shadow-[0_0_6px_rgba(175,255,181,0.5)]" : "bg-[#b83560]"
-                }`} />
-              </span>
-              <span className={`text-[11px] font-semibold ${isConnected ? "text-[#AFFFB5]" : "text-[#b83560]"}`}>
-                {isConnected ? "Live" : "Offline"}
-              </span>
-            </div>
+            <ModeToggle />
+            
           </div>
         </div>
       </header>
