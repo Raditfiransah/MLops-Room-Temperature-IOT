@@ -5,7 +5,6 @@ import { supabase } from "@/lib/supabase";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -28,227 +27,301 @@ interface SensorData {
   recorded_at: string;
 }
 
-type PresetRange = "1d" | "3d" | "7d" | "1m" | "custom";
+type TimeRange = "1D" | "3D" | "7D" | "1M" | "CUSTOM";
+type ThresholdLevel = "normal" | "warning" | "critical";
 
-// ─── Chart Colors ───────────────────────────────────────────────────
-const COLORS = {
-  temperature: { stroke: "#22d3ee", fill: "#22d3ee", gradient: "from-cyan-500/20" },
-  humidity: { stroke: "#818cf8", fill: "#818cf8", gradient: "from-indigo-500/20" },
-  heatIndex: { stroke: "#fb923c", fill: "#fb923c", gradient: "from-orange-500/20" },
+// ─── CSS var helper ─────────────────────────────────────────────────
+function cssVar(name: string): string {
+  if (typeof window === "undefined") return "";
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+// ─── Thresholds ─────────────────────────────────────────────────────
+const THRESHOLDS = {
+  temperature: { warning: 30, critical: 35 },
+  humidity: { warning: 70, critical: 85 },
+  heat_index: { warning: 32, critical: 40 },
+};
+
+function getLevel(value: number, key: keyof typeof THRESHOLDS): ThresholdLevel {
+  if (value >= THRESHOLDS[key].critical) return "critical";
+  if (value >= THRESHOLDS[key].warning) return "warning";
+  return "normal";
+}
+
+const LEVEL_COLORS: Record<ThresholdLevel, string> = {
+  normal: "#5ec96a",
+  warning: "#facc15",
+  critical: "#b83560",
+};
+
+const LEVEL_LABELS: Record<ThresholdLevel, string> = {
+  normal: "Normal",
+  warning: "Warning",
+  critical: "Critical",
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────
-function getDateFromPreset(preset: PresetRange): Date {
+function getRangeStart(range: TimeRange): Date {
   const now = new Date();
-  switch (preset) {
-    case "1d":
-      return new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
-    case "3d":
-      return new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
-    case "7d":
-      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    case "1m":
-      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    default:
-      return new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000);
+  switch (range) {
+    case "1D": return new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    case "3D": return new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
+    case "7D": return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    case "1M": return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    default: return new Date(now.getTime() - 24 * 60 * 60 * 1000);
   }
 }
 
-function formatDateForInput(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+function formatTime(ts: string, range: TimeRange): string {
+  const d = new Date(ts);
+  if (range === "1D") {
+    return d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" });
+  }
+  return d.toLocaleDateString("id-ID", { month: "2-digit", day: "2-digit", timeZone: "Asia/Jakarta" }) +
+    " " + d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" });
 }
 
-// ─── Custom Tooltip ─────────────────────────────────────────────────
-function CustomTooltip({
-  active,
-  payload,
-  label,
-  unit,
-  color,
+function formatFull(ts: string): string {
+  return new Date(ts).toLocaleString("id-ID", {
+    day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit",
+    timeZone: "Asia/Jakarta",
+  });
+}
+
+function formatDateInput(d: Date): string {
+  return d.toISOString().split("T")[0];
+}
+
+// ─── Circular Gauge with threshold colors ───────────────────────────
+function CircleGauge({
+  value, unit, label, min, max, thresholdKey,
 }: {
-  active?: boolean;
-  payload?: Array<{ value: number }>;
-  label?: string;
-  unit: string;
-  color: string;
+  value: number | null; unit: string; label: string; min: number; max: number;
+  thresholdKey: keyof typeof THRESHOLDS;
 }) {
-  if (!active || !payload?.length) return null;
+  const pct = value !== null ? Math.max(0, Math.min(1, (value - min) / (max - min))) : 0;
+  const circumference = 2 * Math.PI * 42;
+  const dashOffset = circumference - pct * circumference * 0.75;
+  const level = value !== null ? getLevel(value, thresholdKey) : "normal";
+  const arcColor = LEVEL_COLORS[level];
+
   return (
-    <div className="rounded-lg border border-white/10 bg-black/80 px-3 py-2 shadow-xl backdrop-blur-md">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="text-sm font-semibold" style={{ color }}>
-        {payload[0].value.toFixed(1)} {unit}
-      </p>
+    <div className="flex flex-col items-center gap-2">
+      <div className="relative h-[120px] w-[120px]">
+        <svg viewBox="0 0 100 100" className="h-full w-full -rotate-135">
+          {/* Background arc */}
+          <circle cx="50" cy="50" r="42" fill="none" className="stroke-border" strokeWidth="5"
+            strokeDasharray={`${circumference * 0.75} ${circumference * 0.25}`} strokeLinecap="round" />
+          {/* Value arc — color changes by threshold */}
+          <circle cx="50" cy="50" r="42" fill="none" strokeWidth="5"
+            stroke={arcColor}
+            strokeDasharray={`${circumference * 0.75} ${circumference * 0.25}`}
+            strokeDashoffset={dashOffset} strokeLinecap="round"
+            style={{ filter: `drop-shadow(0 0 4px ${arcColor}80)`, transition: "stroke-dashoffset 0.8s ease, stroke 0.4s ease" }} />
+        </svg>
+        {/* Center value */}
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-extrabold text-foreground">
+            {value !== null ? value.toFixed(1) : "--"}
+          </span>
+          <span className="text-[10px] font-bold text-muted-foreground">{unit}</span>
+        </div>
+      </div>
+      {/* Label */}
+      <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</span>
+      {/* Threshold badge */}
+      {value !== null && (
+        <span
+          className="rounded-full px-2.5 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+          style={{
+            background: `${arcColor}18`,
+            color: arcColor,
+            border: `1px solid ${arcColor}30`,
+          }}
+        >
+          {LEVEL_LABELS[level]}
+        </span>
+      )}
     </div>
   );
 }
 
-// ─── Stat Card ──────────────────────────────────────────────────────
-function StatCard({
-  title,
-  value,
-  unit,
-  icon,
-  color,
-  gradient,
+// ─── Humidity Trend Chart (improved) ────────────────────────────────
+function HumidityChart({
+  data, themeColors,
 }: {
-  title: string;
-  value: number | null;
-  unit: string;
-  icon: string;
-  color: string;
-  gradient: string;
+  data: Array<{ time: string; humidity: number }>;
+  themeColors: { primary: string; accent: string; border: string; bg: string; muted: string };
 }) {
+  const sliced = data.slice(-50);
+
   return (
-    <Card className={`relative overflow-hidden border-0 bg-linear-to-br ${gradient} to-card`}>
-      <div
-        className="pointer-events-none absolute -right-4 -top-4 h-24 w-24 rounded-full opacity-10 blur-2xl"
-        style={{ background: color }}
-      />
-      <CardHeader className="pb-2">
-        <CardDescription className="flex items-center gap-2 text-xs uppercase tracking-wider text-muted-foreground">
-          <span className="text-lg">{icon}</span>
-          {title}
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="flex items-baseline gap-1">
-          <span className="text-3xl font-bold tracking-tight" style={{ color }}>
-            {value !== null ? value.toFixed(1) : "—"}
-          </span>
-          <span className="text-sm text-muted-foreground">{unit}</span>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="h-full w-full">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={sliced} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <defs>
+            <linearGradient id="hum-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={themeColors.primary} stopOpacity={0.25} />
+              <stop offset="50%" stopColor={themeColors.primary} stopOpacity={0.08} />
+              <stop offset="100%" stopColor={themeColors.primary} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke={`${themeColors.border}60`} />
+          {/* Warning threshold line at 70% */}
+          <XAxis
+            dataKey="time"
+            stroke="transparent"
+            tick={{ fill: themeColors.muted, fontSize: 9 }}
+            tickLine={false}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            stroke="transparent"
+            tick={{ fill: themeColors.muted, fontSize: 9 }}
+            tickLine={false}
+            domain={["auto", "auto"]}
+          />
+          <Tooltip
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null;
+              const v = payload[0].value as number;
+              const lvl = getLevel(v, "humidity");
+              return (
+                <div className="rounded-xl border border-border bg-card/95 px-3 py-2 shadow-xl backdrop-blur-md">
+                  <p className="text-[10px] text-muted-foreground">{label}</p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-bold text-foreground">{v.toFixed(1)}%</span>
+                    <span className="rounded-full px-1.5 py-0.5 text-[8px] font-bold uppercase"
+                      style={{ background: `${LEVEL_COLORS[lvl]}18`, color: LEVEL_COLORS[lvl] }}>
+                      {LEVEL_LABELS[lvl]}
+                    </span>
+                  </div>
+                </div>
+              );
+            }}
+          />
+          {/* Warning zone reference line */}
+          <Area
+            type="monotone"
+            dataKey="humidity"
+            stroke={themeColors.primary}
+            strokeWidth={2.5}
+            fill="url(#hum-fill)"
+            dot={false}
+            activeDot={{ r: 4, fill: themeColors.primary, stroke: themeColors.bg, strokeWidth: 2 }}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
-// ─── Chart Card ─────────────────────────────────────────────────────
-function ChartCard({
-  title,
-  description,
-  data,
-  dataKey,
-  color,
-  unit,
-}: {
-  title: string;
-  description: string;
-  data: Array<{ time: string; [key: string]: string | number }>;
-  dataKey: string;
-  color: string;
-  unit: string;
+// ─── Main Chart Tooltip ─────────────────────────────────────────────
+function ChartTooltip({ active, payload, label }: {
+  active?: boolean;
+  payload?: Array<{ value: number; dataKey: string }>;
+  label?: string;
 }) {
-  const gradientId = `gradient-${dataKey}`;
+  if (!active || !payload?.length) return null;
+  const labels: Record<string, string> = { temperature: "Temperature", heat_index: "Heat Index" };
+  const units: Record<string, string> = { temperature: "°C", heat_index: "°C" };
+  const keys: Record<string, keyof typeof THRESHOLDS> = { temperature: "temperature", heat_index: "heat_index" };
 
   return (
-    <Card className="border-0">
-      <CardHeader>
-        <CardTitle className="text-base font-medium">{title}</CardTitle>
-        <CardDescription className="text-xs">{description}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="h-[280px] w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-              <defs>
-                <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-                  <stop offset="100%" stopColor={color} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis
-                dataKey="time"
-                stroke="rgba(255,255,255,0.25)"
-                tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis
-                stroke="rgba(255,255,255,0.25)"
-                tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                domain={["auto", "auto"]}
-              />
-              <Tooltip content={<CustomTooltip unit={unit} color={color} />} />
-              <Area
-                type="monotone"
-                dataKey={dataKey}
-                stroke={color}
-                strokeWidth={2.5}
-                fill={`url(#${gradientId})`}
-                dot={false}
-                activeDot={{
-                  r: 5,
-                  fill: color,
-                  stroke: "rgba(0,0,0,0.5)",
-                  strokeWidth: 2,
-                }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="rounded-xl border border-border bg-card/95 px-4 py-3 shadow-2xl backdrop-blur-md">
+      <p className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
+      {payload.map((p) => {
+        const lvl = getLevel(p.value, keys[p.dataKey] || "temperature");
+        return (
+          <div key={p.dataKey} className="flex items-center justify-between gap-6 py-0.5">
+            <span className="text-xs text-muted-foreground">{labels[p.dataKey] || p.dataKey}</span>
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-bold text-foreground">{p.value.toFixed(1)} {units[p.dataKey] || ""}</span>
+              <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: LEVEL_COLORS[lvl] }} />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
-// ─── Preset Button ──────────────────────────────────────────────────
-function PresetButton({
-  label,
-  value,
-  active,
-  onClick,
-}: {
-  label: string;
-  value: PresetRange;
-  active: boolean;
-  onClick: (v: PresetRange) => void;
-}) {
+// ─── Stats Cell ─────────────────────────────────────────────────────
+function StatCell({ label, value }: { label: string; value: string }) {
   return (
-    <button
-      onClick={() => onClick(value)}
-      className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all duration-200 ${
-        active
-          ? "bg-white/10 text-white shadow-[0_0_10px_rgba(255,255,255,0.05)]"
-          : "text-muted-foreground hover:bg-white/5 hover:text-white"
-      }`}
-    >
-      {label}
-    </button>
+    <div className="rounded-lg bg-background p-3">
+      <p className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">{label}</p>
+      <p className="mt-1 text-sm font-bold text-primary">{value}</p>
+    </div>
   );
 }
 
-// ─── Main Dashboard ─────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// MAIN DASHBOARD
+// ═══════════════════════════════════════════════════════════════
 export default function Dashboard() {
   const [sensorData, setSensorData] = useState<SensorData[]>([]);
   const [isConnected, setIsConnected] = useState(false);
-  const [lastUpdated, setLastUpdated] = useState<string | null>(null);
+  const [nowTime, setNowTime] = useState(new Date());
+  const [timeRange, setTimeRange] = useState<TimeRange>("1D");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [isDark, setIsDark] = useState(true);
+  const [themeColors, setThemeColors] = useState({
+    primary: "#c4b0f5", accent: "#7c5cbf", border: "#252336",
+    bg: "#0b0b10", muted: "#7a6e9a",
+  });
 
-  // Time range state
-  const [activePreset, setActivePreset] = useState<PresetRange>("1d");
-  const [customStart, setCustomStart] = useState<string>("");
-  const [customEnd, setCustomEnd] = useState<string>("");
+  // Read theme from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem("theme");
+    setIsDark(saved !== "light");
+  }, []);
 
-  // Compute date range
-  const dateRange = useMemo(() => {
-    if (activePreset === "custom" && customStart && customEnd) {
-      return {
-        from: new Date(customStart + "T00:00:00"),
-        to: new Date(customEnd + "T23:59:59"),
-      };
+  // Read CSS vars whenever theme changes
+  const readThemeColors = useCallback(() => {
+    setTimeout(() => {
+      setThemeColors({
+        primary: cssVar("--primary") || "#c4b0f5",
+        accent: cssVar("--accent") || "#7c5cbf",
+        border: cssVar("--border") || "#252336",
+        bg: cssVar("--background") || "#0b0b10",
+        muted: cssVar("--muted-foreground") || "#7a6e9a",
+      });
+    }, 50);
+  }, []);
+
+  useEffect(() => { readThemeColors(); }, [isDark, readThemeColors]);
+
+  const toggleTheme = () => {
+    const newDark = !isDark;
+    setIsDark(newDark);
+    if (newDark) {
+      document.documentElement.classList.add("dark");
+      localStorage.setItem("theme", "dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+      localStorage.setItem("theme", "light");
     }
-    return {
-      from: getDateFromPreset(activePreset),
-      to: new Date(),
-    };
-  }, [activePreset, customStart, customEnd]);
+  };
 
+  // Live clock
+  useEffect(() => {
+    const t = setInterval(() => setNowTime(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Date range
+  const dateRange = useMemo(() => {
+    if (timeRange === "CUSTOM" && customStart && customEnd) {
+      return { from: new Date(customStart + "T00:00:00"), to: new Date(customEnd + "T23:59:59") };
+    }
+    return { from: getRangeStart(timeRange), to: new Date() };
+  }, [timeRange, customStart, customEnd]);
+
+  // Fetch
   const fetchData = useCallback(async () => {
     const { data, error } = await supabase
       .from("sensor_logs_suhu")
@@ -256,245 +329,370 @@ export default function Dashboard() {
       .gte("recorded_at", dateRange.from.toISOString())
       .lte("recorded_at", dateRange.to.toISOString())
       .order("recorded_at", { ascending: true })
-      .limit(500);
-
-    if (!error && data) {
-      setSensorData(data as SensorData[]);
-      if (data.length > 0) {
-        setLastUpdated(
-          new Date(data[data.length - 1].recorded_at).toLocaleString("id-ID", {
-            timeZone: "Asia/Jakarta",
-          })
-        );
-      }
-    }
+      .limit(1000);
+    if (!error && data) setSensorData(data as SensorData[]);
   }, [dateRange]);
 
-  useEffect(() => {
-    fetchData();
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-    // Real-time subscription
+  // Real-time
+  useEffect(() => {
     const channel = supabase
-      .channel("sensor-realtime")
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "sensor_logs_suhu" },
+      .channel("tempmonitor-live")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "sensor_logs_suhu" },
         (payload) => {
-          const newRow = payload.new as SensorData;
-          setSensorData((prev) => {
-            const updated = [...prev, newRow];
-            return updated.slice(-500);
-          });
-          setLastUpdated(
-            new Date(newRow.recorded_at).toLocaleString("id-ID", {
-              timeZone: "Asia/Jakarta",
-            })
-          );
+          const row = payload.new as SensorData;
+          setSensorData((prev) => [...prev, row].slice(-1000));
         }
       )
-      .subscribe((status) => {
-        setIsConnected(status === "SUBSCRIBED");
-      });
+      .subscribe((status) => setIsConnected(status === "SUBSCRIBED"));
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [fetchData]);
-
-  // Handle preset click
-  const handlePresetClick = (preset: PresetRange) => {
-    setActivePreset(preset);
-    if (preset !== "custom") {
-      setCustomStart("");
-      setCustomEnd("");
-    } else {
-      // Default custom range to last 7 days
+  // Range handler
+  const handleRange = (r: TimeRange) => {
+    setTimeRange(r);
+    if (r === "CUSTOM") {
       const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      setCustomStart(formatDateForInput(weekAgo));
-      setCustomEnd(formatDateForInput(now));
+      setCustomStart(formatDateInput(new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)));
+      setCustomEnd(formatDateInput(now));
     }
   };
 
-  // Format data for charts - show date+time for multi-day ranges
-  const chartData = sensorData.map((d) => {
-    const date = new Date(d.recorded_at);
-    const showDate = activePreset !== "1d";
-    const time = showDate
-      ? date.toLocaleDateString("id-ID", {
-          day: "2-digit",
-          month: "short",
-          timeZone: "Asia/Jakarta",
-        }) +
-        " " +
-        date.toLocaleTimeString("id-ID", {
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "Asia/Jakarta",
-        })
-      : date.toLocaleTimeString("id-ID", {
-          hour: "2-digit",
-          minute: "2-digit",
-          timeZone: "Asia/Jakarta",
-        });
-
-    return {
-      time,
-      temperature: d.temperature,
-      humidity: d.humidity,
-      heat_index: d.heat_index,
-    };
-  });
-
+  // Derived
   const latest = sensorData.length > 0 ? sensorData[sensorData.length - 1] : null;
+  const recentRows = [...sensorData].reverse().slice(0, 12);
+
+  const chartData = sensorData.map((d) => ({
+    time: formatTime(d.recorded_at, timeRange),
+    temperature: d.temperature,
+    heat_index: d.heat_index,
+  }));
+
+  const humidityData = sensorData.map((d) => ({
+    time: formatTime(d.recorded_at, timeRange),
+    humidity: d.humidity,
+  }));
+
+  // Stats
+  const stats = useMemo(() => {
+    if (sensorData.length === 0) return null;
+    const temps = sensorData.map((d) => d.temperature);
+    const hums = sensorData.map((d) => d.humidity);
+    const his = sensorData.map((d) => d.heat_index);
+    const avg = (arr: number[]) => (arr.reduce((a, b) => a + b, 0) / arr.length).toFixed(1);
+    return {
+      tempMin: Math.min(...temps).toFixed(1), tempMax: Math.max(...temps).toFixed(1), tempAvg: avg(temps),
+      humMin: Math.min(...hums).toFixed(1), humMax: Math.max(...hums).toFixed(1), humAvg: avg(hums),
+      hiMin: Math.min(...his).toFixed(1), hiMax: Math.max(...his).toFixed(1), hiAvg: avg(his),
+    };
+  }, [sensorData]);
+
+  const ranges: TimeRange[] = ["1D", "3D", "7D", "1M", "CUSTOM"];
 
   return (
-    <div className="min-h-screen bg-background px-4 py-8 md:px-8">
-      {/* Header */}
-      <header className="mx-auto mb-8 max-w-7xl">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight text-foreground md:text-3xl">
-              <span className="mr-2">📡</span>
-              IoT Sensor Dashboard
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Monitoring suhu, kelembapan & heat index secara real-time
-            </p>
+    <div className="min-h-screen text-foreground">
+      {/* ══════ HEADER ══════ */}
+      <header className="sticky top-0 z-50 border-b border-border bg-background/85 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1280px] items-center justify-between px-6 py-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-7 w-7 items-center justify-center rounded-full bg-primary">
+              <div className="h-3 w-3 rounded-full bg-primary-foreground/85" />
+            </div>
+            <span className="text-base font-extrabold tracking-tight">TempMonitor</span>
           </div>
           <div className="flex items-center gap-3">
-            {/* Connection Status */}
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-card px-4 py-2">
-              <span
-                className={`inline-block h-2 w-2 rounded-full ${
-                  isConnected
-                    ? "animate-pulse bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.6)]"
-                    : "bg-red-400"
-                }`}
-              />
-              <span className="text-xs text-muted-foreground">
-                {isConnected ? "Live" : "Disconnected"}
+            <span className="hidden text-[11px] font-semibold text-muted-foreground sm:inline">
+              {nowTime.toLocaleString("id-ID", {
+                day: "2-digit", month: "2-digit", year: "numeric",
+                hour: "2-digit", minute: "2-digit", second: "2-digit",
+                timeZone: "Asia/Jakarta",
+              })}
+            </span>
+
+            {/* Theme Toggle */}
+            <button onClick={toggleTheme}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-border bg-muted hover:bg-accent hover:text-accent-foreground"
+              aria-label="Toggle theme">
+              {isDark ? (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>
+                </svg>
+              ) : (
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>
+                </svg>
+              )}
+            </button>
+
+            {/* Realtime pulse */}
+            <div className="flex items-center gap-1.5">
+              <span className="relative inline-flex h-2 w-2">
+                {isConnected && (
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#3aab47] opacity-50" />
+                )}
+                <span className={`relative inline-flex h-2 w-2 rounded-full ${
+                  isConnected ? "bg-[#3aab47] shadow-[0_0_6px_rgba(58,171,71,0.5)]" : "bg-[#b83560]"
+                }`} />
+              </span>
+              <span className={`text-[11px] font-semibold ${isConnected ? "text-[#5ec96a]" : "text-[#b83560]"}`}>
+                {isConnected ? "Live" : "Offline"}
               </span>
             </div>
-            {/* Last Updated */}
-            {lastUpdated && (
-              <div className="hidden rounded-full border border-white/10 bg-card px-4 py-2 text-xs text-muted-foreground sm:block">
-                Update: {lastUpdated}
-              </div>
-            )}
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-7xl space-y-6">
-        {/* ── Time Range Filter ── */}
-        <Card className="border-0">
-          <CardContent className="flex flex-col gap-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-            {/* Preset Buttons */}
-            <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-black/30 p-1">
-              <PresetButton label="1 Hari" value="1d" active={activePreset === "1d"} onClick={handlePresetClick} />
-              <PresetButton label="3 Hari" value="3d" active={activePreset === "3d"} onClick={handlePresetClick} />
-              <PresetButton label="7 Hari" value="7d" active={activePreset === "7d"} onClick={handlePresetClick} />
-              <PresetButton label="1 Bulan" value="1m" active={activePreset === "1m"} onClick={handlePresetClick} />
-              <PresetButton label="Custom" value="custom" active={activePreset === "custom"} onClick={handlePresetClick} />
-            </div>
+      <main className="mx-auto max-w-[1280px] space-y-5 px-6 py-6">
 
-            {/* Custom Date Range */}
-            {activePreset === "custom" && (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-muted-foreground">Dari</label>
-                  <input
-                    type="date"
-                    value={customStart}
-                    onChange={(e) => setCustomStart(e.target.value)}
-                    className="rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white outline-none focus:border-white/25 focus:ring-1 focus:ring-white/10 [color-scheme:dark]"
-                  />
+        {/* ══════ SECTION 1: GAUGES + HUMIDITY CHART ══════ */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_1fr]">
+          {/* Left — Three circular gauges with threshold colors */}
+          <div className="flex items-center justify-around rounded-xl border border-border bg-card px-4 py-6">
+            <CircleGauge value={latest?.temperature ?? null} unit="°C" label="Temperature"
+              min={15} max={50} thresholdKey="temperature" />
+            <CircleGauge value={latest?.humidity ?? null} unit="%" label="Humidity"
+              min={0} max={100} thresholdKey="humidity" />
+            <CircleGauge value={latest?.heat_index ?? null} unit="°C" label="Heat Index"
+              min={15} max={55} thresholdKey="heat_index" />
+          </div>
+
+          {/* Right — Humidity Trend (improved) */}
+          <div className="flex flex-col rounded-xl border border-border bg-card">
+            <div className="flex items-center justify-between px-5 pb-1 pt-4">
+              <div>
+                <h3 className="text-sm font-bold">Humidity Trend</h3>
+                <p className="text-[10px] font-semibold text-muted-foreground">
+                  Last {Math.min(humidityData.length, 50)} readings
+                </p>
+              </div>
+              {latest && (() => {
+                const lvl = getLevel(latest.humidity, "humidity");
+                return (
+                  <div className="flex items-center gap-2 text-right">
+                    <div>
+                      <span className="text-2xl font-extrabold text-primary">{latest.humidity.toFixed(1)}</span>
+                      <span className="ml-0.5 text-xs font-semibold text-muted-foreground">%</span>
+                    </div>
+                    <span className="rounded-full px-2 py-0.5 text-[8px] font-bold uppercase"
+                      style={{ background: `${LEVEL_COLORS[lvl]}18`, color: LEVEL_COLORS[lvl], border: `1px solid ${LEVEL_COLORS[lvl]}30` }}>
+                      {LEVEL_LABELS[lvl]}
+                    </span>
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="min-h-[140px] flex-1 px-2 pb-3">
+              <HumidityChart data={humidityData} themeColors={themeColors} />
+            </div>
+          </div>
+        </div>
+
+        {/* ══════ SECTION 2: MAIN CHART (Temp + Heat Index) ══════ */}
+        <div className="rounded-xl border border-border bg-card p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h2 className="text-sm font-bold">Temperature & Heat Index</h2>
+              <p className="text-[10px] font-semibold text-muted-foreground">Historical sensor data</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-0.5 rounded-lg bg-background p-0.5">
+                {ranges.map((r) => (
+                  <button key={r} onClick={() => handleRange(r)}
+                    className={`rounded-md px-3 py-1 text-[11px] font-bold transition-colors ${
+                      timeRange === r ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                    }`}>
+                    {r === "CUSTOM" ? "Custom" : r}
+                  </button>
+                ))}
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-[6px] w-[6px] rounded-full bg-primary" />
+                  <span className="text-[10px] font-semibold text-muted-foreground">Temperature</span>
                 </div>
-                <span className="text-xs text-muted-foreground">—</span>
-                <div className="flex items-center gap-2">
-                  <label className="text-xs text-muted-foreground">Sampai</label>
-                  <input
-                    type="date"
-                    value={customEnd}
-                    onChange={(e) => setCustomEnd(e.target.value)}
-                    className="rounded-lg border border-white/10 bg-black/40 px-3 py-1.5 text-xs text-white outline-none focus:border-white/25 focus:ring-1 focus:ring-white/10 [color-scheme:dark]"
-                  />
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-block h-[6px] w-[6px] rounded-full bg-accent" />
+                  <span className="text-[10px] font-semibold text-muted-foreground">Heat Index</span>
                 </div>
               </div>
-            )}
-
-            {/* Data count badge */}
-            <div className="text-xs text-muted-foreground">
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1">
-                {sensorData.length} data
-              </span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
 
-        {/* Stat Cards */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <StatCard
-            title="Suhu"
-            value={latest?.temperature ?? null}
-            unit="°C"
-            icon="🌡️"
-            color={COLORS.temperature.stroke}
-            gradient={COLORS.temperature.gradient}
-          />
-          <StatCard
-            title="Kelembapan"
-            value={latest?.humidity ?? null}
-            unit="%"
-            icon="💧"
-            color={COLORS.humidity.stroke}
-            gradient={COLORS.humidity.gradient}
-          />
-          <StatCard
-            title="Heat Index"
-            value={latest?.heat_index ?? null}
-            unit="°C"
-            icon="🔥"
-            color={COLORS.heatIndex.stroke}
-            gradient={COLORS.heatIndex.gradient}
-          />
+          {timeRange === "CUSTOM" && (
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">From</span>
+                <input type="date" value={customStart} onChange={(e) => setCustomStart(e.target.value)}
+                  className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground outline-none scheme-dark" />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">To</span>
+                <input type="date" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)}
+                  className="rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-semibold text-foreground outline-none scheme-dark" />
+              </div>
+            </div>
+          )}
+
+          {sensorData.length === 0 ? (
+            <div className="flex h-[320px] items-center justify-center">
+              <p className="text-sm font-semibold text-muted-foreground">No sensor data available for this period</p>
+            </div>
+          ) : (
+            <div className="h-[320px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="g-temp" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={themeColors.primary} stopOpacity={0.15} />
+                      <stop offset="100%" stopColor={themeColors.primary} stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="g-hi" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={themeColors.accent} stopOpacity={0.1} />
+                      <stop offset="100%" stopColor={themeColors.accent} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke={`${themeColors.border}60`} />
+                  <XAxis dataKey="time" stroke="transparent"
+                    tick={{ fill: themeColors.muted, fontSize: 9 }} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis stroke="transparent"
+                    tick={{ fill: themeColors.muted, fontSize: 9 }} tickLine={false} domain={["auto", "auto"]} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Area type="monotone" dataKey="temperature" stroke={themeColors.primary} strokeWidth={2.5}
+                    fill="url(#g-temp)" dot={false}
+                    activeDot={{ r: 4, fill: themeColors.primary, stroke: themeColors.bg, strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="heat_index" stroke={themeColors.accent} strokeWidth={2}
+                    fill="url(#g-hi)" dot={false} strokeDasharray="6 3"
+                    activeDot={{ r: 4, fill: themeColors.accent, stroke: themeColors.bg, strokeWidth: 2 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
         </div>
 
-        {/* Charts */}
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <ChartCard
-            title="🌡️ Suhu (Temperature)"
-            description="Monitoring suhu lingkungan"
-            data={chartData}
-            dataKey="temperature"
-            color={COLORS.temperature.stroke}
-            unit="°C"
-          />
-          <ChartCard
-            title="💧 Kelembapan (Humidity)"
-            description="Monitoring kelembapan udara"
-            data={chartData}
-            dataKey="humidity"
-            color={COLORS.humidity.stroke}
-            unit="%"
-          />
+        {/* ══════ SECTION 3: TABLE + STATS ══════ */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
+          {/* Recent Readings Table with conditional formatting */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card">
+            <div className="px-5 py-4">
+              <h3 className="text-sm font-bold">Recent Readings</h3>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border">
+                    {["TIMESTAMP", "TEMP (°C)", "HUMIDITY (%)", "HEAT INDEX (°C)"].map((h) => (
+                      <th key={h} className="px-5 py-2.5 text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {recentRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-5 py-8 text-center font-semibold text-muted-foreground">
+                        No data available
+                      </td>
+                    </tr>
+                  ) : (
+                    recentRows.map((row, i) => {
+                      const tLvl = getLevel(row.temperature, "temperature");
+                      const hLvl = getLevel(row.humidity, "humidity");
+                      const hiLvl = getLevel(row.heat_index, "heat_index");
+                      const hasAlert = tLvl !== "normal" || hLvl !== "normal" || hiLvl !== "normal";
+
+                      return (
+                        <tr key={row.id}
+                          className={`border-b border-border/30 ${i % 2 === 0 ? "bg-card" : "bg-muted/30"}`}
+                          style={hasAlert ? { borderLeft: `3px solid ${LEVEL_COLORS[tLvl === "critical" ? "critical" : hLvl === "critical" ? "critical" : hiLvl === "critical" ? "critical" : "warning"]}` } : {}}>
+                          <td className="px-5 py-2.5 font-semibold text-muted-foreground">{formatFull(row.recorded_at)}</td>
+                          <td className="px-5 py-2.5 font-bold" style={{ color: LEVEL_COLORS[tLvl] }}>
+                            {row.temperature.toFixed(1)}
+                          </td>
+                          <td className="px-5 py-2.5 font-bold" style={{ color: LEVEL_COLORS[hLvl] }}>
+                            {row.humidity.toFixed(1)}
+                          </td>
+                          <td className="px-5 py-2.5 font-bold" style={{ color: LEVEL_COLORS[hiLvl] }}>
+                            {row.heat_index.toFixed(1)}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Statistics Panel */}
+          <div className="rounded-xl border border-border bg-card">
+            <div className="px-5 py-4">
+              <h3 className="text-sm font-bold">Statistics</h3>
+            </div>
+            <div className="px-5 pb-5">
+              {stats ? (
+                <div className="grid grid-cols-3 gap-2">
+                  <StatCell label="Min Temp" value={`${stats.tempMin}°C`} />
+                  <StatCell label="Max Temp" value={`${stats.tempMax}°C`} />
+                  <StatCell label="Avg Temp" value={`${stats.tempAvg}°C`} />
+                  <StatCell label="Min Hum" value={`${stats.humMin}%`} />
+                  <StatCell label="Max Hum" value={`${stats.humMax}%`} />
+                  <StatCell label="Avg Hum" value={`${stats.humAvg}%`} />
+                  <StatCell label="Min HI" value={`${stats.hiMin}°C`} />
+                  <StatCell label="Max HI" value={`${stats.hiMax}°C`} />
+                  <StatCell label="Avg HI" value={`${stats.hiAvg}°C`} />
+                </div>
+              ) : (
+                <p className="py-6 text-center text-xs font-semibold text-muted-foreground">No data for statistics</p>
+              )}
+
+              {/* System Status */}
+              <div className="mt-4 rounded-lg bg-background p-4">
+                <p className="mb-3 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">System Status</p>
+                <div className="space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Data Source</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#3aab47]" />
+                      <span className="text-[11px] font-bold">Supabase</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Last Updated</span>
+                    <div className="flex items-center gap-1.5">
+                      {isConnected && (
+                        <span className="relative inline-flex h-1.5 w-1.5">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#3aab47] opacity-40" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#3aab47]" />
+                        </span>
+                      )}
+                      <span className="text-[11px] font-bold">{latest ? formatFull(latest.recorded_at) : "--"}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Sensor Status</span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${isConnected ? "bg-[#3aab47]" : "bg-[#b83560]"}`} />
+                      <span className={`text-[11px] font-bold ${isConnected ? "text-[#5ec96a]" : "text-[#b83560]"}`}>
+                        {isConnected ? "Online" : "Offline"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Total Readings</span>
+                    <span className="text-[11px] font-bold">{sensorData.length}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1">
-          <ChartCard
-            title="🔥 Heat Index"
-            description="Indeks panas — kombinasi suhu & kelembapan"
-            data={chartData}
-            dataKey="heat_index"
-            color={COLORS.heatIndex.stroke}
-            unit="°C"
-          />
-        </div>
-
-        {/* Footer */}
-        <footer className="pb-6 pt-4 text-center text-xs text-muted-foreground">
-          <p>IoT Sensor Dashboard • Data dari Supabase • Auto-reload aktif</p>
+        <footer className="pb-4 pt-2 text-center">
+          <p className="text-[10px] font-semibold tracking-wider text-muted-foreground/40">
+            TempMonitor v1.0 / Supabase Realtime / {new Date().getFullYear()}
+          </p>
         </footer>
       </main>
     </div>
