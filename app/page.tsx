@@ -50,9 +50,9 @@ function getLevel(value: number, key: keyof typeof THRESHOLDS): ThresholdLevel {
 }
 
 const LEVEL_COLORS: Record<ThresholdLevel, string> = {
-  normal: "#5ec96a",
-  warning: "#facc15",
-  critical: "#b83560",
+  normal: "#3A8B95  ",
+  warning: "#FF9644",
+  critical: "#FF3E9B",
 };
 
 const LEVEL_LABELS: Record<ThresholdLevel, string> = {
@@ -429,13 +429,13 @@ export default function Dashboard() {
             <div className="flex items-center gap-1.5">
               <span className="relative inline-flex h-2 w-2">
                 {isConnected && (
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#3aab47] opacity-50" />
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#AFFFB5] opacity-50" />
                 )}
                 <span className={`relative inline-flex h-2 w-2 rounded-full ${
-                  isConnected ? "bg-[#3aab47] shadow-[0_0_6px_rgba(58,171,71,0.5)]" : "bg-[#b83560]"
+                  isConnected ? "bg-[#AFFFB5] shadow-[0_0_6px_rgba(175,255,181,0.5)]" : "bg-[#b83560]"
                 }`} />
               </span>
-              <span className={`text-[11px] font-semibold ${isConnected ? "text-[#5ec96a]" : "text-[#b83560]"}`}>
+              <span className={`text-[11px] font-semibold ${isConnected ? "text-[#AFFFB5]" : "text-[#b83560]"}`}>
                 {isConnected ? "Live" : "Offline"}
               </span>
             </div>
@@ -654,7 +654,7 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-muted-foreground">Data Source</span>
                     <div className="flex items-center gap-1.5">
-                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#3aab47]" />
+                      <span className="inline-block h-1.5 w-1.5 rounded-full bg-[#AFFFB5]" />
                       <span className="text-[11px] font-bold">Supabase</span>
                     </div>
                   </div>
@@ -663,8 +663,8 @@ export default function Dashboard() {
                     <div className="flex items-center gap-1.5">
                       {isConnected && (
                         <span className="relative inline-flex h-1.5 w-1.5">
-                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#3aab47] opacity-40" />
-                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#3aab47]" />
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[#AFFFB5] opacity-40" />
+                          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#AFFFB5]" />
                         </span>
                       )}
                       <span className="text-[11px] font-bold">{latest ? formatFull(latest.recorded_at) : "--"}</span>
@@ -673,8 +673,8 @@ export default function Dashboard() {
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-semibold text-muted-foreground">Sensor Status</span>
                     <div className="flex items-center gap-1.5">
-                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${isConnected ? "bg-[#3aab47]" : "bg-[#b83560]"}`} />
-                      <span className={`text-[11px] font-bold ${isConnected ? "text-[#5ec96a]" : "text-[#b83560]"}`}>
+                      <span className={`inline-block h-1.5 w-1.5 rounded-full ${isConnected ? "bg-[#AFFFB5]" : "bg-[#b83560]"}`} />
+                      <span className={`text-[11px] font-bold ${isConnected ? "text-[#AFFFB5]" : "text-[#b83560]"}`}>
                         {isConnected ? "Online" : "Offline"}
                       </span>
                     </div>
