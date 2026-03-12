@@ -558,12 +558,12 @@ export default function Dashboard() {
                   <YAxis stroke="transparent"
                     tick={{ fill: themeColors.muted, fontSize: 9 }} tickLine={false} domain={["auto", "auto"]} />
                   <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="temperature" stroke={themeColors.primary} strokeWidth={2.5}
-                    fill="url(#g-temp)" dot={false}
-                    activeDot={{ r: 4, fill: themeColors.primary, stroke: themeColors.bg, strokeWidth: 2 }} />
                   <Area type="monotone" dataKey="heat_index" stroke={themeColors.accent} strokeWidth={2}
                     fill="url(#g-hi)" dot={false} strokeDasharray="6 3"
                     activeDot={{ r: 4, fill: themeColors.accent, stroke: themeColors.bg, strokeWidth: 2 }} />
+                  <Area type="monotone" dataKey="temperature" stroke={themeColors.primary} strokeWidth={2.5}
+                    fill="url(#g-temp)" dot={false}
+                    activeDot={{ r: 4, fill: themeColors.primary, stroke: themeColors.bg, strokeWidth: 2 }} />
                 </AreaChart>
               </ResponsiveContainer>
             </div>
