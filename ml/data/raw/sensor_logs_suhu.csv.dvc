@@ -1,0 +1,5 @@
+outs:
+- md5: f5e8f562d475c4cdcddb7f1ec05ec8b0
+  size: 14369
+  hash: md5
+  path: sensor_logs_suhu.csv
