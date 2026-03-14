@@ -1,2 +1,46 @@
+# Data
 data/raw/snapshots/
 
+# MLflow
+mlflow.db
+mlruns/
+
+# Model artifacts & outputs
+model/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Environment & secrets
+.env
+.env.*
+*.pem
+
+# IDE & OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs & cache
+*.log
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/

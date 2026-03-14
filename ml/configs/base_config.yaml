@@ -1,0 +1,28 @@
+# Konfigurasi base untuk Temperature Forecasting Pipeline
+
+data:
+  data_path: "data/raw/sensor_logs_suhu.csv"
+  output_dir: "model"
+
+model:
+  target: "temperature"
+  exog_features: ["humidity", "heat_index"]
+  forecast_horizon: 3  # 3 steps = 30 minutes
+
+features:
+  lag_steps: [1, 2, 3, 6, 12]
+  rolling_windows: [3, 6, 12]
+
+train:
+  test_size: 0.2
+  cv_folds: 3
+  random_state: 42
+
+optuna:
+  n_trials: 50
+  timeout: 300  # seconds
+
+value_ranges:
+  temperature: [-20, 60]
+  humidity: [0, 100]
+  heat_index: [-20, 80]
