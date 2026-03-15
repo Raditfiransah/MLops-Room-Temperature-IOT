@@ -13,13 +13,13 @@ def save_artifacts(model, scaler, feature_cols, metrics, best_params, config, ou
     print("💾 STEP: SAVE ARTIFACTS")
     print("=" * 70)
 
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    run_output_dir = Path(output_dir)
+    run_output_dir.mkdir(parents=True, exist_ok=True)
 
-    model_path = output_dir / "model.pkl"
-    scaler_path = output_dir / "scaler.pkl"
-    metadata_path = output_dir / "metadata.json"
-    report_path = output_dir / "pipeline_report.txt"
+    model_path = run_output_dir / "model.pkl"
+    scaler_path = run_output_dir / "scaler.pkl"
+    metadata_path = run_output_dir / "metadata.json"
+    report_path = run_output_dir / "pipeline_report.txt"
 
     joblib.dump(model, model_path)
     joblib.dump(scaler, scaler_path)
@@ -36,6 +36,16 @@ def save_artifacts(model, scaler, feature_cols, metrics, best_params, config, ou
     with open(metadata_path, "w") as f:
         json.dump(metadata, f, indent=2)
     print(f"✓ Saved: {metadata_path}")
+
+    # Simpan juga metadata "terbaru" di direktori root model untuk keperluan pengecekan konsistensi fitur
+    root_output_dir = run_output_dir.parent
+    root_metadata_path = root_output_dir / "metadata.json"
+    try:
+        with open(root_metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        print(f"✓ Updated latest metadata: {root_metadata_path}")
+    except Exception as e:
+        print(f"⚠️  Failed to update root metadata: {e}")
 
     with open(report_path, "w") as f:
         f.write("=" * 70 + "\nTEMPERATURE FORECASTING PIPELINE REPORT\n" + "=" * 70 + "\n\n")
@@ -54,4 +64,9 @@ def save_artifacts(model, scaler, feature_cols, metrics, best_params, config, ou
             f.write(f"  {i}. {feat}\n")
     print(f"✓ Saved: {report_path}")
 
-    return {"model_path": str(model_path), "scaler_path": str(scaler_path), "metadata_path": str(metadata_path), "report_path": str(report_path)}
+    return {
+        "model_path": str(model_path),
+        "scaler_path": str(scaler_path),
+        "metadata_path": str(metadata_path),
+        "report_path": str(report_path),
+    }

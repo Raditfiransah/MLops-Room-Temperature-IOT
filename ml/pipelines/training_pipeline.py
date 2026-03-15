@@ -24,15 +24,18 @@ def run_training_pipeline(config):
     print("\n" + "=" * 70)
     print("🌡️  TEMPERATURE FORECASTING PIPELINE")
     print("=" * 70)
-    print(f"Start: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    start_time = datetime.now()
+    print(f"Start: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    output_dir = _str_path(config["output_dir"])
+    base_output_dir = Path(config["output_dir"])
+    run_suffix = start_time.strftime("%Y%m%d_%H%M%S")
+    run_output_dir = base_output_dir / f"run_{run_suffix}"
 
     df = load_data(config)
     validate_data(df, config)
 
     feat, feature_cols = create_features(df, config)
-    validate_feature_consistency(feature_cols, config["output_dir"])
+    validate_feature_consistency(feature_cols, base_output_dir)
 
     X_train, X_test, y_train, y_test, scaler = split_and_scale(feat, feature_cols, config)
 
@@ -45,23 +48,31 @@ def run_training_pipeline(config):
     all_metrics = {**hpo_metrics, **cv_metrics, **test_metrics}
 
     forecast_plot, importance_plot = save_plots(
-        model, y_test, predictions, feature_cols, config["output_dir"]
+        model, y_test, predictions, feature_cols, run_output_dir
     )
 
     artifact_paths = save_artifacts(
-        model, scaler, feature_cols, all_metrics, best_params, config, config["output_dir"]
+        model, scaler, feature_cols, all_metrics, best_params, config, run_output_dir
     )
 
     log_to_mlflow(
-        model, scaler, all_metrics, best_params, feature_cols, config,
-        forecast_plot, importance_plot, artifact_paths,
+        model,
+        scaler,
+        all_metrics,
+        best_params,
+        feature_cols,
+        config,
+        forecast_plot,
+        importance_plot,
+        artifact_paths,
     )
 
     print("\n" + "=" * 70)
     print("✅ PIPELINE COMPLETED")
     print("=" * 70)
-    print(f"End: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"\nOutputs: {output_dir}")
+    end_time = datetime.now()
+    print(f"End: {end_time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"\nOutputs (this run): {run_output_dir}")
     for k, v in artifact_paths.items():
         print(f"  • {k}: {v}")
     print(f"  • Plots: {forecast_plot}, {importance_plot}")
